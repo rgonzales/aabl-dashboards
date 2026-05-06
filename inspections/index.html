@@ -74,6 +74,17 @@
       border-radius: 8px;
       margin-bottom: 24px;
     }
+    /* On narrow screens, stack the filter row and KPI cards vertically so
+       users on phones / tablets don't have to scroll sideways to reach the
+       NAICS cascade. The chart itself remains horizontally scrollable inside
+       its panel. */
+    @media (max-width: 900px) {
+      header { padding: 18px 18px 10px; }
+      main { padding: 16px 18px 32px; }
+      .kpis { grid-template-columns: 1fr; gap: 10px; margin-bottom: 18px; }
+      .filters { grid-template-columns: 1fr; gap: 14px; padding: 16px; }
+      .chart-header { flex-wrap: wrap; gap: 12px; }
+    }
     .filter { display: flex; flex-direction: column; gap: 6px; }
     .filter > label { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
 
@@ -182,7 +193,7 @@
   <header>
     <h1>OSHA Inspections Dashboard</h1>
     <p>The OSHA Inspections Dashboard is based on data published by the Occupational Safety and Health Administration. 
-		Includes inspections opened 2013 – <span id="data-through">present</span>. Filter by industry, geography, and inspection type.</p>
+		Includes inspections opened January 1, 2013 – <span id="data-through">present</span>. Filter by industry, geography, and inspection type.</p>
   </header>
 
   <div id="loading">Loading data…</div>
@@ -958,8 +969,12 @@
     // ------------------------------------------------------------------
     try {
       const manifest = await (await fetch('./data/manifest.json', { cache: 'no-cache' })).json();
-      if (manifest?.data_through_label) {
-        document.getElementById('data-through').textContent = manifest.data_through_label;
+      if (manifest?.data_through_date) {
+        const d = new Date(manifest.data_through_date + 'T12:00:00Z');
+        const longLabel = d.toLocaleDateString('en-US', {
+          year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC',
+        });
+        document.getElementById('data-through').textContent = longLabel;
       }
     } catch (e) {
       console.warn('manifest.json missing — header will read "present"', e);

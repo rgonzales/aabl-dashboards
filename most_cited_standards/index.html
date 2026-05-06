@@ -67,6 +67,17 @@
       border-radius: 8px;
       margin-bottom: 24px;
     }
+    /* On narrow screens, stack the filter row and KPI cards vertically so
+       users on phones / tablets don't have to scroll sideways to reach the
+       NAICS cascade. The chart itself remains horizontally scrollable inside
+       its panel — most charts can't shrink below ~600px and stay readable. */
+    @media (max-width: 900px) {
+      header { padding: 18px 18px 10px; }
+      main { padding: 16px 18px 32px; }
+      .kpis { grid-template-columns: 1fr; gap: 10px; margin-bottom: 18px; }
+      .filters { grid-template-columns: 1fr; gap: 14px; padding: 16px; }
+      .chart-header { flex-wrap: wrap; gap: 12px; }
+    }
     .filter { display: flex; flex-direction: column; gap: 6px; }
     .filter > label { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
 
@@ -190,6 +201,43 @@
     table.results td.std { font-family: "SF Mono", Menlo, Consolas, monospace; }
     table.results td.num { text-align: right; font-variant-numeric: tabular-nums; }
 
+    /* Expandable rows: each parent row clicks open to show top-5 most cited
+       provisions (sub-paragraphs) of that standard. Sub-rows render with a
+       lighter background and an indented citation column. */
+    table.results tbody tr.parent { cursor: pointer; }
+    table.results tbody tr.parent .caret {
+      display: inline-block;
+      width: 10px;
+      margin-right: 8px;
+      color: var(--muted);
+      font-size: 10px;
+      transition: transform 0.15s ease;
+      user-select: none;
+    }
+    table.results tbody tr.parent.expanded .caret { transform: rotate(90deg); }
+
+    table.results tbody tr.sub { background: #f8fafc; }
+    table.results tbody tr.sub:hover { background: #eef2f7; }
+    table.results tbody tr.sub td.std {
+      padding-left: 38px;
+      font-size: 12px;
+      color: #475569;
+    }
+    table.results tbody tr.sub td.num { color: #475569; }
+    table.results tbody tr.sub-loading td {
+      padding: 10px 12px;
+      color: var(--muted);
+      font-size: 12px;
+      font-style: italic;
+      text-align: center;
+    }
+    table.results tbody tr.sub-empty td {
+      padding: 10px 12px;
+      color: var(--muted);
+      font-size: 12px;
+      text-align: center;
+    }
+
     .footnote { margin: 10px 2px 0; font-size: 11px; color: var(--muted); line-height: 1.5; }
 
     footer {
@@ -203,7 +251,7 @@
 <body>
   <header>
     <h1>Most Frequently Cited OSHA Standards</h1>
-    <p>The Most Frequently Cited OSHA Standards Dashboard is based on data published by the Occupational Safety and Health Administration. Includes violations issued 2013 – <span id="data-through">present</span>. Filter by industry, geography, and inspection type.</p>
+    <p>The Most Frequently Cited OSHA Standards Dashboard is based on data published by the Occupational Safety and Health Administration. Includes violations issued January 1, 2013 – <span id="data-through">present</span>. Filter by industry, geography, and inspection type.</p>
   </header>
 
   <div id="loading">Loading data…</div>
@@ -353,6 +401,39 @@
         ? info.title.slice(0, MAX_TITLE_CHARS - 1) + '…'
         : info.title;
       return `${info.formatted} — ${title}`;
+    }
+
+    // Format a full standard code into a human-readable citation.
+    //   19100147             -> 1910.147
+    //   19100147 C04 I       -> 1910.147(c)(4)(i)
+    //   19100147 C07 I A     -> 1910.147(c)(7)(i)(A)
+    //   19260501 B13         -> 1926.501(b)(13)
+    //
+    // Suffix rules follow the CFR/OSHA citation convention. Across depths
+    // (1-paragraph, 2-subparagraph, 3-clause, 4-subclause, 5-item, ...)
+    // letters alternate between lowercase (depths 1, 3, 6, 7, ...) and
+    // uppercase (depths 4, 8, ...) — i.e. the segment at zero-indexed
+    // position 3 (and every 4th after) is uppercase. Numeric segments have
+    // leading zeros stripped.
+    //
+    // State-plan codes and 5A0001 (General Duty Clause) pass through unchanged
+    // since their structure isn't the standard 4+4-digit federal format.
+    const FEDERAL_PREFIXES_4 = new Set(['1903','1904','1910','1915','1917','1918','1926','1928','1960']);
+    function formatCitation(stdFull) {
+      if (!stdFull) return '';
+      const code = String(stdFull).trim();
+      if (code.length < 8 || !FEDERAL_PREFIXES_4.has(code.slice(0, 4))) return code;
+      const part = code.slice(0, 4);
+      const second = code.slice(4, 8).replace(/^0+/, '') || '0';
+      const suffix = code.slice(8);
+      const isLetter = s => /^[A-Za-z]+$/.test(s);
+      const segments = (suffix.match(/[A-Za-z]+|[0-9]+/g) || []).map((seg, idx) => {
+        if (isLetter(seg)) {
+          return ((idx - 3) % 4 === 0) ? seg.toUpperCase() : seg.toLowerCase();
+        }
+        return seg.replace(/^0+/, '') || '0';
+      });
+      return `${part}.${second}${segments.map(s => `(${s})`).join('')}`;
     }
 
     // ------------------------------------------------------------------
@@ -526,6 +607,20 @@
       yearMaxLabel.textContent = String(values[1]) === String(currentYear) ? `${values[1]} YTD` : values[1];
     }
     updateYearLabels([minYear, maxYear]);
+
+    // Set by the manifest fetch on first load. ISO date string ('2026-03-31');
+    // null until manifest loads (or if it fails). The chart-meta and header
+    // both consult this so the end-date stays in sync with the build cutoff.
+    let dataThroughDate = null;
+
+    function formatLongDate(isoDate) {
+      // '2026-03-31' -> 'March 31, 2026'. Anchor to UTC noon to dodge any
+      // timezone-rollover surprises.
+      const d = new Date(isoDate + 'T12:00:00Z');
+      return d.toLocaleDateString('en-US', {
+        year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC',
+      });
+    }
 
     // ------------------------------------------------------------------
     // Filter state
@@ -779,9 +874,12 @@
         inspections: 'inspection count',
         total_penalty: 'total penalty',
       }[filterState.metric];
-      const yearRange = `${filterState.yearMin}–${filterState.yearMax === currentYear ? filterState.yearMax + ' YTD' : filterState.yearMax}`;
+      const startDate = formatLongDate(`${filterState.yearMin}-01-01`);
+      const endDate = (filterState.yearMax === currentYear && dataThroughDate)
+        ? formatLongDate(dataThroughDate)
+        : `December 31, ${filterState.yearMax}`;
       document.getElementById('chart-meta').textContent =
-        currentRows.length ? `Ranked by ${metricLabel} · ${yearRange}` : '';
+        currentRows.length ? `Ranked by ${metricLabel} · ${startDate} – ${endDate}` : '';
     }
 
     function renderTable() {
@@ -789,8 +887,10 @@
       body.innerHTML = '';
       for (const row of currentRows) {
         const tr = document.createElement('tr');
+        tr.className = 'parent';
+        tr.dataset.prefix = row.standard_prefix;
         tr.innerHTML = `
-          <td class="std">${escapeHtml(row.display_long)}</td>
+          <td class="std"><span class="caret">▶</span>${escapeHtml(row.display_long)}</td>
           <td class="num">${Math.round(row.violations).toLocaleString()}</td>
           <td class="num">${Math.round(row.serious).toLocaleString()}</td>
           <td class="num">${Math.round(row.willful).toLocaleString()}</td>
@@ -799,7 +899,108 @@
           <td class="num">${Math.round(row.inspections).toLocaleString()}</td>
           <td class="num">$${Math.round(row.total_penalty).toLocaleString()}</td>
         `;
+        tr.addEventListener('click', () => toggleProvisionDrillDown(tr));
         body.appendChild(tr);
+      }
+    }
+
+    // Top-5 most-cited provisions (sub-paragraphs) within a single standard
+    // prefix, fetched on click. Sub-rows render directly below the parent
+    // row in the table; clicking again collapses them.
+    //
+    // Inspections column is "—" for sub-rows because the inspections parquet
+    // is keyed at standard_prefix grain, not standard_full — counting at
+    // provision level isn't meaningful (the same inspection is usually cited
+    // under multiple sub-paragraphs of the same standard).
+    async function toggleProvisionDrillDown(parentRow) {
+      const wasExpanded = parentRow.classList.contains('expanded');
+
+      // Always clear any sub-rows attached to this parent
+      let next = parentRow.nextElementSibling;
+      while (next && next.classList.contains('sub')) {
+        const toRemove = next;
+        next = next.nextElementSibling;
+        toRemove.remove();
+      }
+      // Also remove any in-flight loading row
+      next = parentRow.nextElementSibling;
+      while (next && (next.classList.contains('sub-loading') || next.classList.contains('sub-empty'))) {
+        const toRemove = next;
+        next = next.nextElementSibling;
+        toRemove.remove();
+      }
+
+      if (wasExpanded) {
+        parentRow.classList.remove('expanded');
+        return;
+      }
+      parentRow.classList.add('expanded');
+
+      // Loading placeholder while we query
+      const loading = document.createElement('tr');
+      loading.className = 'sub-loading';
+      loading.innerHTML = `<td colspan="8">Loading top provisions…</td>`;
+      parentRow.parentNode.insertBefore(loading, parentRow.nextSibling);
+
+      const prefix = parentRow.dataset.prefix;
+      const where = buildWhere(filterState);
+      let provisions;
+      try {
+        provisions = await query(`
+          SELECT standard_full,
+                 SUM(violations)                                                  AS violations,
+                 SUM(CASE WHEN viol_type = 'Serious' THEN violations ELSE 0 END)  AS serious,
+                 SUM(CASE WHEN viol_type = 'Willful' THEN violations ELSE 0 END)  AS willful,
+                 SUM(CASE WHEN viol_type = 'Repeat'  THEN violations ELSE 0 END)  AS repeat_count,
+                 SUM(CASE WHEN viol_type = 'Other'   THEN violations ELSE 0 END)  AS other_than_serious,
+                 SUM(total_penalty)                                               AS total_penalty
+          FROM 'violations.parquet'
+          WHERE ${where} AND standard_prefix = ${sqlEscape(prefix)}
+          GROUP BY 1
+          ORDER BY violations DESC NULLS LAST
+          LIMIT 5
+        `);
+      } catch (e) {
+        console.error('provision drill-down query failed', e);
+        loading.remove();
+        parentRow.classList.remove('expanded');
+        return;
+      }
+
+      // Race-guard: user may have collapsed (or refreshed) by the time we got back
+      if (!parentRow.classList.contains('expanded') || !parentRow.isConnected) {
+        loading.remove();
+        return;
+      }
+      loading.remove();
+
+      if (!provisions.length) {
+        const empty = document.createElement('tr');
+        empty.className = 'sub-empty';
+        empty.innerHTML = `<td colspan="8">No provisions match the current filters.</td>`;
+        parentRow.parentNode.insertBefore(empty, parentRow.nextSibling);
+        return;
+      }
+
+      // Insert in reverse order so they end up directly below the parent
+      // in the original (descending-violations) order.
+      for (let i = provisions.length - 1; i >= 0; i--) {
+        const p = provisions[i];
+        const sub = document.createElement('tr');
+        sub.className = 'sub';
+        sub.innerHTML = `
+          <td class="std">${escapeHtml(formatCitation(p.standard_full))}</td>
+          <td class="num">${Math.round(p.violations).toLocaleString()}</td>
+          <td class="num">${Math.round(p.serious).toLocaleString()}</td>
+          <td class="num">${Math.round(p.willful).toLocaleString()}</td>
+          <td class="num">${Math.round(p.repeat_count).toLocaleString()}</td>
+          <td class="num">${Math.round(p.other_than_serious).toLocaleString()}</td>
+          <td class="num">—</td>
+          <td class="num">$${Math.round(p.total_penalty).toLocaleString()}</td>
+        `;
+        // Stop click propagation so clicking a sub-row doesn't toggle the parent
+        sub.addEventListener('click', e => e.stopPropagation());
+        parentRow.parentNode.insertBefore(sub, parentRow.nextSibling);
       }
     }
 
@@ -913,8 +1114,10 @@
     // ------------------------------------------------------------------
     try {
       const manifest = await (await fetch('./data/manifest.json', { cache: 'no-cache' })).json();
-      if (manifest?.data_through_label) {
-        document.getElementById('data-through').textContent = manifest.data_through_label;
+      if (manifest?.data_through_date) {
+        dataThroughDate = manifest.data_through_date;
+        document.getElementById('data-through').textContent = formatLongDate(dataThroughDate);
+        renderChartMeta();   // re-render now that we have an end-date
       }
     } catch (e) {
       console.warn('manifest.json missing — header will read "present"', e);
