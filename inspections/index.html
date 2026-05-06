@@ -1,0 +1,976 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OSHA Inspections Dashboard — AABL Analytics</title>
+
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/nouislider@15.8.1/dist/nouislider.min.css">
+  <style>
+    :root {
+      --bg: #fff;
+      --fg: #1a1a1a;
+      --muted: #6b7280;
+      --border: #e5e7eb;
+      --accent: #1e40af;
+      --accent-light: #dbeafe;
+      --programmed: #1e3a8a;       /* blue-900, darkest */
+      --unprogrammed: #93c5fd;     /* blue-300, light */
+      --hover: #f3f4f6;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, sans-serif;
+      margin: 0;
+      background: var(--bg);
+      color: var(--fg);
+      font-size: 14px;
+      line-height: 1.4;
+    }
+    header {
+      padding: 24px 32px 12px;
+      border-bottom: 1px solid var(--border);
+    }
+    header h1 { margin: 0 0 4px; font-size: 22px; font-weight: 600; }
+    header p { margin: 0; color: var(--muted); font-size: 13px; }
+
+    #loading {
+      padding: 60px 32px;
+      color: var(--muted);
+      text-align: center;
+    }
+
+    main { display: none; padding: 20px 32px 40px; }
+
+    /* KPI cards */
+    .kpis {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .kpi {
+      background: var(--accent-light);
+      border-radius: 8px;
+      padding: 16px 20px;
+      position: relative;
+    }
+    .kpi.programmed { background: #e0e7ff; }
+    .kpi.unprogrammed { background: #eff6ff; }
+    .kpi .label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+    .kpi .value { font-size: 24px; font-weight: 600; color: var(--accent); }
+    .kpi.programmed .value { color: var(--programmed); }
+    .kpi.unprogrammed .value { color: #1d4ed8; }
+    .kpi .pct { font-size: 12px; color: var(--muted); margin-top: 2px; font-variant-numeric: tabular-nums; }
+
+    /* Filters */
+    .filters {
+      display: grid;
+      grid-template-columns: 1.6fr 1fr 1fr 1.4fr;
+      gap: 20px;
+      padding: 20px;
+      background: #f9fafb;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      margin-bottom: 24px;
+    }
+    .filter { display: flex; flex-direction: column; gap: 6px; }
+    .filter > label { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+
+    select {
+      padding: 6px 10px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: white;
+      font-size: 13px;
+      font-family: inherit;
+      cursor: pointer;
+    }
+    select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+    select:disabled { opacity: 0.55; cursor: not-allowed; }
+
+    /* NAICS cascade */
+    .naics-cascade { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+
+    /* Month slider */
+    .month-slider-wrap { padding: 10px 8px 4px; }
+    .month-labels { display: flex; justify-content: space-between; margin-top: 8px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+    #month-slider { margin-top: 4px; }
+    .noUi-connect { background: var(--accent); }
+    .noUi-handle { box-shadow: none !important; }
+
+    /* Chart area */
+    .chart-wrap {
+      background: white;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 20px 24px 24px;
+    }
+    .chart-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 16px;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    .chart-header h2 { margin: 0; font-size: 16px; font-weight: 600; }
+    .chart-header .meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+    /* Total / By-type toggle */
+    .mode-toggle { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+    .mode-toggle button {
+      padding: 6px 14px;
+      border: none;
+      background: white;
+      font-size: 13px;
+      font-family: inherit;
+      cursor: pointer;
+      color: var(--fg);
+    }
+    .mode-toggle button + button { border-left: 1px solid var(--border); }
+    .mode-toggle button.active {
+      background: var(--accent);
+      color: white;
+    }
+    .mode-toggle button:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+      background: white;
+      color: var(--muted);
+    }
+
+    .download-btn {
+      padding: 6px 12px;
+      font-size: 12px;
+      font-family: inherit;
+      background: white;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--fg);
+      cursor: pointer;
+    }
+    .download-btn:hover { background: var(--hover); }
+
+    #chart { overflow-x: auto; min-height: 380px; }
+    #chart figure, #chart svg { margin: 0; max-width: 100%; }
+    #empty-state { padding: 60px; text-align: center; color: var(--muted); display: none; }
+
+    /* Manual legend (rendered above chart in by-type mode) */
+    .legend { display: flex; gap: 18px; margin-bottom: 12px; font-size: 12px; color: var(--muted); }
+    .legend.hidden { display: none; }
+    .legend .swatch {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      border-radius: 2px;
+      margin-right: 6px;
+      vertical-align: middle;
+    }
+
+    .footnote { margin: 14px 2px 0; font-size: 11px; color: var(--muted); line-height: 1.5; }
+
+    footer {
+      padding: 20px 32px;
+      border-top: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>OSHA Inspections Dashboard</h1>
+    <p>The OSHA Inspections Dashboard is based on data published by the Occupational Safety and Health Administration. 
+		Includes inspections opened 2013 – <span id="data-through">present</span>. Filter by industry, geography, and inspection type.</p>
+  </header>
+
+  <div id="loading">Loading data…</div>
+
+  <main>
+    <section class="kpis">
+      <div class="kpi"><div class="label">Total Inspections</div><div class="value" id="kpi-total">—</div><div class="pct" id="kpi-total-meta">&nbsp;</div></div>
+      <div class="kpi programmed"><div class="label">Programmed</div><div class="value" id="kpi-programmed">—</div><div class="pct" id="kpi-programmed-pct">—</div></div>
+      <div class="kpi unprogrammed"><div class="label">Unprogrammed</div><div class="value" id="kpi-unprogrammed">—</div><div class="pct" id="kpi-unprogrammed-pct">—</div></div>
+    </section>
+
+    <section class="filters">
+      <div class="filter">
+        <label>Date Range</label>
+        <div class="month-slider-wrap">
+          <div id="month-slider"></div>
+          <div class="month-labels">
+            <span id="month-min-label">—</span>
+            <span id="month-max-label">—</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="filter">
+        <label>Inspection Type</label>
+        <select id="insp-type">
+          <option value="">All</option>
+          <option value="Programmed">Programmed</option>
+          <option value="Accident">Accident (State Plan only)</option>
+          <option value="Complaint">Complaint</option>
+          <option value="Fatality/Catastrophe">Fatality/Catastrophe</option>
+          <option value="Referral">Referral</option>
+          <option value="Unprogrammed Emphasis">Unprogrammed Emphasis (May 2025+)</option>
+          <option value="Follow-Up">Follow-Up</option>
+          <option value="Monitoring">Monitoring</option>
+        </select>
+      </div>
+
+      <div class="filter">
+        <label>Jurisdiction</label>
+        <select id="jurisdiction">
+          <option value="">All</option>
+          <option value="Federal OSHA">Federal OSHA</option>
+          <option value="State Plan">State Plan</option>
+        </select>
+        <label style="margin-top:8px">State</label>
+        <select id="state"><option value="">All states</option></select>
+      </div>
+
+      <div class="filter">
+        <label>Industry (NAICS)</label>
+        <div class="naics-cascade">
+          <select id="naics-sector"><option value="">All sectors</option></select>
+          <select id="naics-3" disabled><option value="">All 3-digit</option></select>
+          <select id="naics-4" disabled><option value="">All 4-digit</option></select>
+          <select id="naics-6" disabled><option value="">All 6-digit</option></select>
+        </div>
+      </div>
+    </section>
+
+    <section class="chart-wrap">
+      <div class="chart-header">
+        <div>
+          <h2 id="chart-title">Inspections per Month</h2>
+          <div class="meta" id="chart-meta">—</div>
+        </div>
+        <div style="display:flex; gap:12px; align-items:center;">
+          <div class="mode-toggle" id="period-toggle" role="group" aria-label="Time aggregation">
+            <button class="period-btn active" data-period="month">Month</button>
+            <button class="period-btn" data-period="year">Year</button>
+          </div>
+          <button class="download-btn" id="download-csv" title="Download the time series as CSV">Download CSV</button>
+        </div>
+      </div>
+
+      <div class="legend" id="legend">
+        <span><span class="swatch" style="background: var(--programmed)"></span>Programmed</span>
+        <span><span class="swatch" style="background: var(--unprogrammed)"></span>Unprogrammed</span>
+      </div>
+
+      <div id="chart"></div>
+      <div id="empty-state">No inspections match the current filters.</div>
+
+      <p class="footnote">Inspection counts based on opening conference date. Excludes records with <code>insp_scope = "No Inspection"</code>. *&nbsp;NAICS codes marked with an asterisk were created, removed, or modified between the 2007 and 2022 NAICS releases — counts may not be directly comparable across all years.</p>
+    </section>
+  </main>
+
+  <footer>
+    Data source: U.S. Department of Labor Open Data Portal (data.dol.gov). AABL Analytics does not guarantee the accuracy or completeness of the contents of the OSHA inspection dashboard.
+  </footer>
+
+  <script type="module">
+    import * as duckdb from 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.29.0/+esm';
+    import * as Plot from 'https://cdn.jsdelivr.net/npm/@observablehq/plot@0.6.16/+esm';
+    import noUiSlider from 'https://cdn.jsdelivr.net/npm/nouislider@15.8.1/+esm';
+
+    // Same set used by the standards dashboard, for State filter restriction
+    const STATE_PLAN_STATES = new Set([
+      'AK','AZ','CA','CT','HI','IL','IN','IA','KY','ME','MA','MD','MN','MI',
+      'NJ','NM','NY','NC','PR','SC','OR','VI','WA','VA','TN','UT','VT','NV',
+    ]);
+
+    const PROGRAMMED_COLOR = getComputedStyle(document.documentElement)
+      .getPropertyValue('--programmed').trim() || '#1e3a8a';
+    const UNPROGRAMMED_COLOR = getComputedStyle(document.documentElement)
+      .getPropertyValue('--unprogrammed').trim() || '#f97316';
+    const COLOR_DOMAIN = ['Programmed', 'Unprogrammed'];
+    const COLOR_RANGE  = [PROGRAMMED_COLOR, UNPROGRAMMED_COLOR];
+
+    const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+    const naicsLookup = new Map();
+    const MAX_TITLE_CHARS = 55;
+
+    function naicsLabel(code, level) {
+      const digits = level === 'sector' ? 2 : level;
+      const info = naicsLookup.get(`${digits}:${code}`);
+      const title = info ? info.title : '';
+      const asterisk = info && !info.continuous ? '*' : '';
+      const shortTitle = title.length > MAX_TITLE_CHARS
+        ? title.slice(0, MAX_TITLE_CHARS - 1) + '…'
+        : title;
+      return shortTitle ? `${code}${asterisk} — ${shortTitle}` : `${code}${asterisk}`;
+    }
+
+    // ------------------------------------------------------------------
+    // DuckDB-WASM setup
+    // ------------------------------------------------------------------
+    const bundles = duckdb.getJsDelivrBundles();
+    const bundle = await duckdb.selectBundle(bundles);
+    const workerUrl = URL.createObjectURL(
+      new Blob([`importScripts("${bundle.mainWorker}");`], { type: 'text/javascript' })
+    );
+    const worker = new Worker(workerUrl);
+    const db = new duckdb.AsyncDuckDB(new duckdb.ConsoleLogger('WARNING'), worker);
+    await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
+    URL.revokeObjectURL(workerUrl);
+
+    // Cache-bust parquet URLs so a normal browser refresh always picks up
+    // the latest build_data.py output. Without this the browser may serve
+    // a stale parquet from cache and the slider/filters reflect old extents.
+    const cb = `?v=${Date.now()}`;
+    const inspUrl  = new URL(`./data/inspections.parquet${cb}`, location.href).href;
+    await db.registerFileURL('inspections.parquet', inspUrl, duckdb.DuckDBDataProtocol.HTTP, false);
+    const naicsUrl = new URL(`./data/naics_lookup.parquet${cb}`, location.href).href;
+    await db.registerFileURL('naics_lookup.parquet', naicsUrl, duckdb.DuckDBDataProtocol.HTTP, false);
+    const conn = await db.connect();
+
+    // Load NAICS lookup
+    {
+      const rows = await (await conn.query(`
+        SELECT naics_code, digits, title, vintages, is_current
+        FROM 'naics_lookup.parquet'
+      `)).toArray();
+      for (const r of rows) {
+        const obj = r.toJSON();
+        const vintages = Array.from(obj.vintages || []).map(Number);
+        const continuous = vintages.length === 4
+          && vintages.includes(2007) && vintages.includes(2012)
+          && vintages.includes(2017) && vintages.includes(2022);
+        naicsLookup.set(`${obj.digits}:${obj.naics_code}`, {
+          title: obj.title,
+          vintages,
+          is_current: Boolean(obj.is_current),
+          continuous,
+        });
+      }
+    }
+
+    // ------------------------------------------------------------------
+    // SQL helpers
+    // ------------------------------------------------------------------
+    function sqlEscape(s) {
+      if (s === null || s === undefined) return 'NULL';
+      return "'" + String(s).replace(/'/g, "''") + "'";
+    }
+
+    function rowsFromArrow(arrow) {
+      return arrow.toArray().map(r => {
+        const obj = {};
+        for (const k of Object.keys(r)) {
+          const v = r[k];
+          obj[k] = typeof v === 'bigint' ? Number(v) : v;
+        }
+        return obj;
+      });
+    }
+
+    async function query(sql) {
+      const res = await conn.query(sql);
+      return rowsFromArrow(res);
+    }
+
+    // "Programmed" is the only filter value that maps to a bucket — everything
+    // else is a single-detail filter (Complaint, Accident, Fatality, etc.).
+    function buildWhere(state) {
+      const clauses = [
+        `month_start BETWEEN DATE ${sqlEscape(idxToIso(state.monthMin))} AND DATE ${sqlEscape(idxToIso(state.monthMax))}`
+      ];
+      if (state.inspType === 'Programmed') {
+        clauses.push(`insp_type_bucket = 'Programmed'`);
+      } else if (state.inspType) {
+        clauses.push(`insp_type_detail = ${sqlEscape(state.inspType)}`);
+      }
+      if (state.jurisdiction) clauses.push(`jurisdiction = ${sqlEscape(state.jurisdiction)}`);
+      if (state.siteState)    clauses.push(`site_state = ${sqlEscape(state.siteState)}`);
+      if (state.sector)       clauses.push(`naics_sector = ${sqlEscape(state.sector)}`);
+      if (state.naics3)       clauses.push(`SUBSTR(naics_code, 1, 3) = ${sqlEscape(state.naics3)}`);
+      if (state.naics4)       clauses.push(`SUBSTR(naics_code, 1, 4) = ${sqlEscape(state.naics4)}`);
+      if (state.naics6)       clauses.push(`naics_code = ${sqlEscape(state.naics6)}`);
+      return clauses.join(' AND ');
+    }
+
+    // ------------------------------------------------------------------
+    // Month <-> index helpers
+    //   idx 0 == minMonth (e.g. 2013-01)
+    // ------------------------------------------------------------------
+    let MIN_MONTH_DATE; // {y, m}
+    let MAX_MONTH_DATE;
+    let MAX_IDX;
+
+    function ymFromDate(d) {
+      const dt = (d instanceof Date) ? d : new Date(d);
+      return { y: dt.getUTCFullYear(), m: dt.getUTCMonth() + 1 };
+    }
+    function idxToYm(idx) {
+      const total = (MIN_MONTH_DATE.y * 12 + (MIN_MONTH_DATE.m - 1)) + Math.round(idx);
+      return { y: Math.floor(total / 12), m: (total % 12) + 1 };
+    }
+    function idxToIso(idx) {
+      const { y, m } = idxToYm(idx);
+      return `${y}-${String(m).padStart(2, '0')}-01`;
+    }
+    function idxToLabel(idx) {
+      const { y, m } = idxToYm(idx);
+      return `${MONTH_NAMES[m - 1]} ${y}`;
+    }
+    function ymToIdx(y, m) {
+      return (y * 12 + (m - 1)) - (MIN_MONTH_DATE.y * 12 + (MIN_MONTH_DATE.m - 1));
+    }
+
+    // ------------------------------------------------------------------
+    // Initial metadata
+    // ------------------------------------------------------------------
+    const meta = await query(`
+      SELECT MIN(month_start) AS min_m, MAX(month_start) AS max_m
+      FROM 'inspections.parquet'
+    `);
+    MIN_MONTH_DATE = ymFromDate(meta[0].min_m);
+    MAX_MONTH_DATE = ymFromDate(meta[0].max_m);
+    MAX_IDX = ymToIdx(MAX_MONTH_DATE.y, MAX_MONTH_DATE.m);
+
+    const states = await query(`
+      SELECT DISTINCT site_state FROM 'inspections.parquet'
+      WHERE site_state IS NOT NULL ORDER BY site_state
+    `);
+
+    const sectors = await query(`
+      SELECT naics_sector, SUM(inspections) AS c
+      FROM 'inspections.parquet'
+      GROUP BY 1 ORDER BY naics_sector
+    `);
+
+    // ------------------------------------------------------------------
+    // Populate dropdowns
+    // ------------------------------------------------------------------
+    const stateEl = document.getElementById('state');
+    const allStates = states.map(r => r.site_state);
+
+    function populateStateDropdown(jurisdiction) {
+      const visible = jurisdiction === 'State Plan'
+        ? allStates.filter(s => STATE_PLAN_STATES.has(s))
+        : allStates;
+      stateEl.innerHTML = '<option value="">All states</option>';
+      for (const s of visible) {
+        const opt = document.createElement('option');
+        opt.value = s;
+        opt.textContent = s;
+        stateEl.appendChild(opt);
+      }
+    }
+    populateStateDropdown('');
+
+    const sectorEl = document.getElementById('naics-sector');
+    for (const row of sectors) {
+      const opt = document.createElement('option');
+      opt.value = row.naics_sector;
+      opt.textContent = naicsLabel(row.naics_sector, 'sector');
+      sectorEl.appendChild(opt);
+    }
+
+    // ------------------------------------------------------------------
+    // Month slider (noUiSlider in month-index space)
+    // ------------------------------------------------------------------
+    const sliderEl = document.getElementById('month-slider');
+    noUiSlider.create(sliderEl, {
+      start: [0, MAX_IDX],
+      connect: true,
+      step: 1,
+      range: { min: 0, max: MAX_IDX },
+      format: { to: v => Math.round(v), from: v => Number(v) },
+    });
+    const minLabel = document.getElementById('month-min-label');
+    const maxLabel = document.getElementById('month-max-label');
+    function updateMonthLabels(values) {
+      minLabel.textContent = idxToLabel(values[0]);
+      maxLabel.textContent = idxToLabel(values[1]);
+    }
+    updateMonthLabels([0, MAX_IDX]);
+
+    // ------------------------------------------------------------------
+    // Filter state
+    // ------------------------------------------------------------------
+    const filterState = {
+      monthMin: 0,
+      monthMax: MAX_IDX,
+      period: 'month',        // 'month' | 'year'
+      inspType: '',           // '' | 'Programmed' | 'Unprogrammed'
+      jurisdiction: '',
+      siteState: '',
+      sector: '',
+      naics3: '',
+      naics4: '',
+      naics6: '',
+    };
+
+    // ------------------------------------------------------------------
+    // NAICS cascade
+    // ------------------------------------------------------------------
+    const naics3El = document.getElementById('naics-3');
+    const naics4El = document.getElementById('naics-4');
+    const naics6El = document.getElementById('naics-6');
+
+    function resetSelect(el, placeholder) {
+      el.innerHTML = `<option value="">${placeholder}</option>`;
+      el.value = '';
+      el.disabled = true;
+    }
+
+    async function populateChildNaics(el, placeholder, parentField, parentValue, selectExpr, level) {
+      resetSelect(el, placeholder);
+      if (!parentValue) return;
+      const parentClause = parentField === 'naics_sector'
+        ? `naics_sector = ${sqlEscape(parentValue)}`
+        : `SUBSTR(naics_code, 1, ${parentField}) = ${sqlEscape(parentValue)}`;
+      const sql = `
+        SELECT ${selectExpr} AS code
+        FROM 'inspections.parquet'
+        WHERE ${parentClause} AND naics_code IS NOT NULL
+        GROUP BY 1 HAVING code IS NOT NULL
+        ORDER BY code
+      `;
+      const rows = await query(sql);
+      for (const row of rows) {
+        const opt = document.createElement('option');
+        opt.value = row.code;
+        opt.textContent = naicsLabel(row.code, level);
+        el.appendChild(opt);
+      }
+      el.disabled = rows.length === 0;
+    }
+
+    sectorEl.addEventListener('change', async () => {
+      filterState.sector = sectorEl.value;
+      filterState.naics3 = filterState.naics4 = filterState.naics6 = '';
+      resetSelect(naics4El, 'All 4-digit');
+      resetSelect(naics6El, 'All 6-digit');
+      await populateChildNaics(naics3El, 'All 3-digit', 'naics_sector', filterState.sector, 'SUBSTR(naics_code, 1, 3)', 3);
+      refresh();
+    });
+    naics3El.addEventListener('change', async () => {
+      filterState.naics3 = naics3El.value;
+      filterState.naics4 = filterState.naics6 = '';
+      resetSelect(naics6El, 'All 6-digit');
+      await populateChildNaics(naics4El, 'All 4-digit', 3, filterState.naics3, 'SUBSTR(naics_code, 1, 4)', 4);
+      refresh();
+    });
+    naics4El.addEventListener('change', async () => {
+      filterState.naics4 = naics4El.value;
+      filterState.naics6 = '';
+      await populateChildNaics(naics6El, 'All 6-digit', 4, filterState.naics4, 'naics_code', 6);
+      refresh();
+    });
+    naics6El.addEventListener('change', () => {
+      filterState.naics6 = naics6El.value;
+      refresh();
+    });
+
+    // ------------------------------------------------------------------
+    // Other filter wiring
+    // ------------------------------------------------------------------
+    const inspTypeEl = document.getElementById('insp-type');
+    inspTypeEl.addEventListener('change', e => {
+      filterState.inspType = e.target.value;
+      refresh();
+    });
+
+    document.getElementById('jurisdiction').addEventListener('change', e => {
+      filterState.jurisdiction = e.target.value;
+      populateStateDropdown(filterState.jurisdiction);
+      if (filterState.siteState && !Array.from(stateEl.options).some(o => o.value === filterState.siteState)) {
+        filterState.siteState = '';
+      }
+      stateEl.value = filterState.siteState;
+      refresh();
+    });
+    stateEl.addEventListener('change', e => {
+      filterState.siteState = e.target.value;
+      refresh();
+    });
+
+    let sliderTimer;
+    sliderEl.noUiSlider.on('update', values => {
+      const v = [Number(values[0]), Number(values[1])];
+      updateMonthLabels(v);
+      filterState.monthMin = v[0];
+      filterState.monthMax = v[1];
+      clearTimeout(sliderTimer);
+      sliderTimer = setTimeout(refresh, 150);
+    });
+
+    // ------------------------------------------------------------------
+    // Period toggle (Month / Year). Slider stays in months either way.
+    // ------------------------------------------------------------------
+    const legendEl = document.getElementById('legend');
+
+    for (const btn of document.querySelectorAll('.period-btn')) {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        filterState.period = btn.dataset.period;
+        renderChart();
+        renderChartMeta();
+      });
+    }
+
+    function renderLegend() {
+      // Hide the legend only when one type is filtered (a single band is shown).
+      legendEl.classList.toggle('hidden', !!filterState.inspType);
+    }
+
+    // ------------------------------------------------------------------
+    // CSV download (the time series currently on screen)
+    // ------------------------------------------------------------------
+    document.getElementById('download-csv').addEventListener('click', downloadCsv);
+
+    // ------------------------------------------------------------------
+    // KPI + chart state
+    // ------------------------------------------------------------------
+    function fmtInt(n) {
+      if (n == null) return '—';
+      return Math.round(n).toLocaleString();
+    }
+    function fmtPct(n, total) {
+      if (!total) return '—';
+      return `${(n / total * 100).toFixed(1)}% of total`;
+    }
+
+    let byTypeSeries = [];    // [{month_start: Date, insp_type_bucket, inspections}]
+    let kpis = { total: 0, programmed: 0, unprogrammed: 0 };
+
+    async function refresh() {
+      const where = buildWhere(filterState);
+
+      const [kpiRows, typeRows] = await Promise.all([
+        query(`
+          SELECT insp_type_bucket, SUM(inspections)::BIGINT AS n
+          FROM 'inspections.parquet' WHERE ${where}
+          GROUP BY 1
+        `),
+        query(`
+          SELECT month_start, insp_type_bucket, SUM(inspections)::BIGINT AS inspections
+          FROM 'inspections.parquet' WHERE ${where}
+          GROUP BY 1, 2 ORDER BY 1, 2
+        `),
+      ]);
+
+      kpis = { total: 0, programmed: 0, unprogrammed: 0 };
+      for (const r of kpiRows) {
+        const n = Number(r.n);
+        kpis.total += n;
+        if (r.insp_type_bucket === 'Programmed') kpis.programmed += n;
+        else if (r.insp_type_bucket === 'Unprogrammed') kpis.unprogrammed += n;
+      }
+
+      byTypeSeries = densifyByType(typeRows.map(r => ({
+        month_start: r.month_start instanceof Date ? r.month_start : new Date(r.month_start),
+        insp_type_bucket: r.insp_type_bucket,
+        inspections: Number(r.inspections),
+      })));
+
+      renderKpis();
+      renderLegend();
+      renderChart();
+      renderChartMeta();
+    }
+
+    function renderKpis() {
+      document.getElementById('kpi-total').textContent = fmtInt(kpis.total);
+      document.getElementById('kpi-programmed').textContent = fmtInt(kpis.programmed);
+      document.getElementById('kpi-unprogrammed').textContent = fmtInt(kpis.unprogrammed);
+      document.getElementById('kpi-programmed-pct').textContent = fmtPct(kpis.programmed, kpis.total);
+      document.getElementById('kpi-unprogrammed-pct').textContent = fmtPct(kpis.unprogrammed, kpis.total);
+    }
+
+    function renderChartMeta() {
+      const range = `${idxToLabel(filterState.monthMin)} – ${idxToLabel(filterState.monthMax)}`;
+      const typeBit = filterState.inspType ? ` · ${filterState.inspType} only` : '';
+      const periodBit = filterState.period === 'year' ? ' · annual' : ' · monthly';
+      document.getElementById('chart-meta').textContent = `${range}${typeBit}${periodBit}`;
+      document.getElementById('chart-title').textContent =
+        filterState.period === 'year' ? 'Inspections per Year' : 'Inspections per Month';
+    }
+
+    // ------------------------------------------------------------------
+    // Period aggregation helpers — fold byTypeSeries into the chosen grain.
+    // ------------------------------------------------------------------
+    function periodKey(date, period) {
+      // Returns a Date pinned to the start of the period (Jan 1 for year, 1st for month).
+      return period === 'year'
+        ? new Date(Date.UTC(date.getUTCFullYear(), 0, 1))
+        : date;
+    }
+
+    // Ensure every month present in `rows` has a row for both Programmed and
+    // Unprogrammed (zero-filled where missing). Without this, the area marks
+    // for the two buckets use different x-domains — Programmed skips months
+    // where its count was 0, Unprogrammed treats them as 0 implicitly via
+    // stacking — and monotone-x curve interpolation produces visibly diverging
+    // boundary lines (the band drawn on top "leaks" past where the band below
+    // ends). Densifying gives both areas the same control points so the
+    // shared boundary curve is identical.
+    function densifyByType(rows) {
+      if (!rows.length) return rows;
+      const buckets = ['Programmed', 'Unprogrammed'];
+      const present = new Set();
+      const months = new Map();   // ms -> Date
+      for (const r of rows) {
+        const ms = r.month_start.getTime();
+        present.add(`${ms}|${r.insp_type_bucket}`);
+        if (!months.has(ms)) months.set(ms, r.month_start);
+      }
+      const out = rows.slice();
+      for (const [ms, date] of months) {
+        for (const bucket of buckets) {
+          if (!present.has(`${ms}|${bucket}`)) {
+            out.push({ month_start: date, insp_type_bucket: bucket, inspections: 0 });
+          }
+        }
+      }
+      out.sort((a, b) =>
+        a.month_start - b.month_start ||
+        (a.insp_type_bucket > b.insp_type_bucket ? 1 : -1)
+      );
+      return out;
+    }
+
+    function buildLongData(rows, period) {
+      // Stacked area input: [{x, insp_type_bucket, inspections}]
+      if (period === 'month') {
+        return rows.map(r => ({ x: r.month_start, insp_type_bucket: r.insp_type_bucket, inspections: r.inspections }));
+      }
+      const map = new Map();
+      for (const r of rows) {
+        const x = periodKey(r.month_start, period);
+        const k = `${x.getTime()}|${r.insp_type_bucket}`;
+        if (!map.has(k)) map.set(k, { x, insp_type_bucket: r.insp_type_bucket, inspections: 0 });
+        map.get(k).inspections += r.inspections;
+      }
+      return [...map.values()].sort((a, b) => a.x - b.x);
+    }
+
+    function buildWideData(rows, period) {
+      // Tooltip input: [{x, programmed, unprogrammed, total}]
+      const map = new Map();
+      for (const r of rows) {
+        const x = periodKey(r.month_start, period);
+        const k = x.getTime();
+        if (!map.has(k)) map.set(k, { x, programmed: 0, unprogrammed: 0 });
+        const obj = map.get(k);
+        if (r.insp_type_bucket === 'Programmed') obj.programmed += r.inspections;
+        else if (r.insp_type_bucket === 'Unprogrammed') obj.unprogrammed += r.inspections;
+      }
+      return [...map.values()]
+        .map(d => ({ ...d, total: d.programmed + d.unprogrammed }))
+        .sort((a, b) => a.x - b.x);
+    }
+
+    function fmtPeriod(date, period) {
+      const y = date.getUTCFullYear();
+      if (period === 'year') {
+        return y === MAX_MONTH_DATE.y ? `${y} YTD` : String(y);
+      }
+      return `${MONTH_NAMES[date.getUTCMonth()]} ${y}`;
+    }
+
+    // ------------------------------------------------------------------
+    // Chart rendering — always stacked by type; tooltip carries totals.
+    // ------------------------------------------------------------------
+    function renderChart() {
+      const el = document.getElementById('chart');
+      const empty = document.getElementById('empty-state');
+      el.innerHTML = '';
+
+      if (!byTypeSeries.length || kpis.total === 0) {
+        empty.style.display = 'block';
+        return;
+      }
+      empty.style.display = 'none';
+
+      const period = filterState.period;
+      const longRows = buildLongData(byTypeSeries, period);
+      const wideRows = buildWideData(byTypeSeries, period);
+
+      const width = Math.max(el.clientWidth || 900, 720);
+      const height = 380;
+
+      const yLabel = period === 'year' ? 'Inspections per year' : 'Inspections per month';
+      const fmtNum = n => Math.round(n).toLocaleString();
+      const tipTitle = d =>
+        `${fmtPeriod(d.x, period)}\nTotal: ${fmtNum(d.total)}\nProgrammed: ${fmtNum(d.programmed)}\nUnprogrammed: ${fmtNum(d.unprogrammed)}`;
+
+      // Common Plot options shared across both modes.
+      const baseOpts = {
+        width,
+        height,
+        marginLeft: 64,
+        marginRight: 24,
+        marginBottom: 36,
+        style: { fontSize: '12px' },
+        y: { label: yLabel, grid: true, tickFormat: d3Format, nice: true },
+        color: { domain: COLOR_DOMAIN, range: COLOR_RANGE, legend: false },
+      };
+
+      let chart;
+      if (period === 'year') {
+        // Stacked columns at year intervals. rectY + interval handles bar
+        // sizing automatically and keeps the time axis continuous.
+        //
+        // Tooltip detection: wide-row x's are shifted to mid-year so that
+        // pointerX's "nearest x" bisector falls on January 1 — i.e. the
+        // boundary between adjacent bars — rather than mid-bar. Otherwise
+        // the right half of each bar would resolve to the next year.
+        const wideRowsForTip = wideRows.map(d => ({
+          ...d,
+          x: new Date(Date.UTC(d.x.getUTCFullYear(), 6, 1)),  // July 1
+        }));
+        chart = Plot.plot({
+          ...baseOpts,
+          x: {
+            label: null,
+            tickFormat: d => String(d.getUTCFullYear()),
+            ticks: wideRows.map(d => d.x),
+          },
+          marks: [
+            Plot.rectY(longRows, {
+              x: 'x',
+              interval: 'year',
+              y: 'inspections',
+              fill: 'insp_type_bucket',
+              order: COLOR_DOMAIN,
+              fillOpacity: 0.92,
+              insetLeft: 4,                   // horizontal gap between year cols
+              insetRight: 4,                  // (no insetTop/Bottom — bands flush)
+            }),
+            Plot.tip(wideRowsForTip, Plot.pointerX({
+              x: 'x',
+              y: 'total',
+              maxRadius: Infinity,           // bars are wide; never skip a hover
+              anchor: 'top',
+              title: tipTitle,
+              fontSize: 12,
+              lineHeight: 1.3,
+            })),
+            Plot.ruleY([0]),
+          ],
+        });
+      } else {
+        // Smooth stacked area for monthly resolution.
+        chart = Plot.plot({
+          ...baseOpts,
+          x: {
+            label: null,
+            tickFormat: d => d.getUTCMonth() === 0 ? `${d.getUTCFullYear()}` : MONTH_NAMES[d.getUTCMonth()],
+          },
+          marks: [
+            Plot.areaY(longRows, {
+              x: 'x',
+              y: 'inspections',
+              fill: 'insp_type_bucket',
+              order: COLOR_DOMAIN,
+              curve: 'monotone-x',
+              fillOpacity: 0.92,
+            }),
+            Plot.ruleX(wideRows, Plot.pointerX({
+              x: 'x',
+              stroke: '#475569',
+              strokeOpacity: 0.45,
+              strokeDasharray: '2,3',
+            })),
+            Plot.dot(wideRows, Plot.pointerX({
+              x: 'x',
+              y: 'total',
+              r: 3.5,
+              fill: 'white',
+              stroke: '#0f172a',
+              strokeWidth: 1.5,
+            })),
+            Plot.tip(wideRows, Plot.pointerX({
+              x: 'x',
+              y: 'total',
+              anchor: 'top',
+              title: tipTitle,
+              fontSize: 12,
+              lineHeight: 1.3,
+            })),
+            Plot.ruleY([0]),
+          ],
+        });
+      }
+      el.appendChild(chart);
+    }
+
+    function d3Format(n) {
+      if (n >= 1e9) return (n / 1e9).toFixed(1) + 'B';
+      if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+      if (n >= 1e3) return (n / 1e3).toFixed(0) + 'K';
+      return String(Math.round(n));
+    }
+
+    // ------------------------------------------------------------------
+    // CSV download — exports the currently-rendered series in wide format
+    //   month/year | total | programmed | unprogrammed
+    // ------------------------------------------------------------------
+    function downloadCsv() {
+      const period = filterState.period;
+      const wide = buildWideData(byTypeSeries, period);
+      const periodCol = period === 'year' ? 'year' : 'month_start';
+      const lines = [[periodCol, 'total', 'programmed', 'unprogrammed'].join(',')];
+
+      for (const r of wide) {
+        const periodVal = period === 'year'
+          ? String(r.x.getUTCFullYear())
+          : `${r.x.getUTCFullYear()}-${String(r.x.getUTCMonth() + 1).padStart(2, '0')}-01`;
+        lines.push([periodVal, r.total, r.programmed, r.unprogrammed].join(','));
+      }
+
+      const tokens = [period];
+      tokens.push(`${idxToYm(filterState.monthMin).y}${String(idxToYm(filterState.monthMin).m).padStart(2,'0')}-${idxToYm(filterState.monthMax).y}${String(idxToYm(filterState.monthMax).m).padStart(2,'0')}`);
+      if (filterState.inspType) tokens.push(filterState.inspType);
+      if (filterState.jurisdiction) tokens.push(filterState.jurisdiction.replace(/\s+/g, '_'));
+      if (filterState.siteState) tokens.push(filterState.siteState);
+      if (filterState.naics6) tokens.push(`naics${filterState.naics6}`);
+      else if (filterState.naics4) tokens.push(`naics${filterState.naics4}`);
+      else if (filterState.naics3) tokens.push(`naics${filterState.naics3}`);
+      else if (filterState.sector) tokens.push(`naics${filterState.sector}`);
+      const filename = `osha_inspections_${tokens.join('_')}.csv`;
+
+      const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    // ------------------------------------------------------------------
+    // Manifest — populates the "data through ..." label in the header.
+    // Failure here is non-fatal; we just leave "present" as written.
+    // ------------------------------------------------------------------
+    try {
+      const manifest = await (await fetch('./data/manifest.json', { cache: 'no-cache' })).json();
+      if (manifest?.data_through_label) {
+        document.getElementById('data-through').textContent = manifest.data_through_label;
+      }
+    } catch (e) {
+      console.warn('manifest.json missing — header will read "present"', e);
+    }
+
+    // ------------------------------------------------------------------
+    // First render
+    // ------------------------------------------------------------------
+    await refresh();
+    document.getElementById('loading').style.display = 'none';
+    document.querySelector('main').style.display = 'block';
+  </script>
+</body>
+</html>

@@ -1,0 +1,931 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OSHA Violations Dashboard — AABL Analytics</title>
+
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/nouislider@15.8.1/dist/nouislider.min.css">
+  <style>
+    :root {
+      --bg: #fff;
+      --fg: #1a1a1a;
+      --muted: #6b7280;
+      --border: #e5e7eb;
+      --accent: #1e40af;
+      --accent-light: #dbeafe;
+      --bar: #2563eb;
+      --hover: #f3f4f6;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, sans-serif;
+      margin: 0;
+      background: var(--bg);
+      color: var(--fg);
+      font-size: 14px;
+      line-height: 1.4;
+    }
+    header {
+      padding: 24px 32px 12px;
+      border-bottom: 1px solid var(--border);
+    }
+    header h1 { margin: 0 0 4px; font-size: 22px; font-weight: 600; }
+    header p { margin: 0; color: var(--muted); font-size: 13px; }
+
+    #loading {
+      padding: 60px 32px;
+      color: var(--muted);
+      text-align: center;
+    }
+
+    main { display: none; padding: 20px 32px 40px; }
+
+    /* KPI cards */
+    .kpis {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .kpi {
+      background: var(--accent-light);
+      border-radius: 8px;
+      padding: 16px 20px;
+    }
+    .kpi .label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+    .kpi .value { font-size: 24px; font-weight: 600; color: var(--accent); }
+
+    /* Filters */
+    .filters {
+      display: grid;
+      grid-template-columns: 1.5fr 1fr 1fr 2fr;
+      gap: 20px;
+      padding: 20px;
+      background: #f9fafb;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      margin-bottom: 24px;
+    }
+    .filter { display: flex; flex-direction: column; gap: 6px; }
+    .filter > label { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+
+    select, button.metric-btn {
+      padding: 6px 10px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: white;
+      font-size: 13px;
+      font-family: inherit;
+      cursor: pointer;
+    }
+    select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+
+    .metric-tabs { display: flex; gap: 4px; }
+    .metric-tabs button {
+      flex: 1;
+      padding: 6px 10px;
+      border: 1px solid var(--border);
+      background: white;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 13px;
+      font-family: inherit;
+    }
+    .metric-tabs button.active {
+      background: var(--accent);
+      color: white;
+      border-color: var(--accent);
+    }
+
+    /* NAICS cascade */
+    .naics-cascade { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+
+    /* Year slider */
+    .year-slider-wrap { padding: 10px 8px 4px; }
+    .year-labels { display: flex; justify-content: space-between; margin-top: 8px; font-size: 12px; color: var(--muted); }
+    #year-slider { margin-top: 4px; }
+    .noUi-connect { background: var(--accent); }
+    .noUi-handle { box-shadow: none !important; }
+
+    /* Chart area */
+    .chart-wrap {
+      background: white;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px 20px;
+    }
+    .chart-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 12px;
+    }
+    .chart-header h2 { margin: 0; font-size: 15px; font-weight: 600; }
+    .chart-header .meta { font-size: 12px; color: var(--muted); }
+    #chart { overflow-x: auto; }
+    #chart figure { margin: 0; }
+    #empty-state { padding: 40px; text-align: center; color: var(--muted); display: none; }
+
+    .chart-controls { display: flex; align-items: center; gap: 12px; }
+    .chart-controls label { font-size: 12px; color: var(--muted); }
+    .chart-controls select { padding: 4px 8px; font-size: 12px; }
+    .download-btn {
+      padding: 6px 12px;
+      font-size: 12px;
+      font-family: inherit;
+      background: white;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--fg);
+      cursor: pointer;
+    }
+    .download-btn:hover { background: var(--hover); }
+
+    /* Table */
+    .table-wrap {
+      margin-top: 20px;
+      border-top: 1px solid var(--border);
+      padding-top: 16px;
+    }
+    .table-wrap h3 {
+      margin: 0 0 8px;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .table-scroll {
+      max-height: 520px;
+      overflow-y: auto;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+    }
+    table.results {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    table.results thead th {
+      position: sticky;
+      top: 0;
+      background: #f9fafb;
+      padding: 8px 12px;
+      text-align: left;
+      font-weight: 600;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      font-size: 11px;
+      border-bottom: 1px solid var(--border);
+    }
+    table.results thead th.num { text-align: right; }
+    table.results tbody td {
+      padding: 7px 12px;
+      border-bottom: 1px solid var(--border);
+    }
+    table.results tbody tr:hover { background: var(--hover); }
+    table.results tbody tr:last-child td { border-bottom: none; }
+    table.results td.std { font-family: "SF Mono", Menlo, Consolas, monospace; }
+    table.results td.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+    .footnote { margin: 10px 2px 0; font-size: 11px; color: var(--muted); line-height: 1.5; }
+
+    footer {
+      padding: 20px 32px;
+      border-top: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Most Frequently Cited OSHA Standards</h1>
+    <p>The Most Frequently Cited OSHA Standards Dashboard is based on data published by the Occupational Safety and Health Administration. Includes violations issued 2013 – <span id="data-through">present</span>. Filter by industry, geography, and inspection type.</p>
+  </header>
+
+  <div id="loading">Loading data…</div>
+
+  <main>
+    <section class="kpis">
+      <div class="kpi"><div class="label">Violations</div><div class="value" id="kpi-violations">—</div></div>
+      <div class="kpi"><div class="label">Inspections</div><div class="value" id="kpi-inspections">—</div></div>
+      <div class="kpi"><div class="label">Total Penalties</div><div class="value" id="kpi-penalty">—</div></div>
+    </section>
+
+    <section class="filters">
+      <div class="filter">
+        <label>Year Range</label>
+        <div class="year-slider-wrap">
+          <div id="year-slider"></div>
+          <div class="year-labels">
+            <span id="year-min-label">—</span>
+            <span id="year-max-label">—</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="filter">
+        <label>Metric</label>
+        <div class="metric-tabs" id="metric-tabs">
+          <button class="metric-btn active" data-metric="violations">Violations</button>
+          <button class="metric-btn" data-metric="inspections">Inspections</button>
+          <button class="metric-btn" data-metric="total_penalty">Penalties</button>
+        </div>
+      </div>
+
+      <div class="filter">
+        <label>Jurisdiction</label>
+        <select id="jurisdiction">
+          <option value="">All</option>
+          <option value="Federal OSHA">Federal OSHA</option>
+          <option value="State Plan">State Plan</option>
+        </select>
+        <label style="margin-top:8px">State</label>
+        <select id="state"><option value="">All states</option></select>
+      </div>
+
+      <div class="filter">
+        <label>Industry (NAICS)</label>
+        <div class="naics-cascade">
+          <select id="naics-sector"><option value="">All sectors</option></select>
+          <select id="naics-3" disabled><option value="">All 3-digit</option></select>
+          <select id="naics-4" disabled><option value="">All 4-digit</option></select>
+          <select id="naics-6" disabled><option value="">All 6-digit</option></select>
+        </div>
+      </div>
+    </section>
+
+    <section class="chart-wrap">
+      <div class="chart-header">
+        <div>
+          <h2 id="chart-title">Top 20 Standards</h2>
+          <div class="meta" id="chart-meta">—</div>
+        </div>
+        <div class="chart-controls">
+          <label for="top-n">Show top</label>
+          <select id="top-n">
+            <option value="20" selected>20</option>
+            <option value="50">50</option>
+            <option value="100">100</option>
+          </select>
+          <button class="download-btn" id="download-csv" title="Download the table below as CSV">Download CSV</button>
+        </div>
+      </div>
+      <div id="chart"></div>
+      <div id="empty-state">No violations match the current filters.</div>
+
+      <div class="table-wrap" id="table-wrap">
+        <h3>Details</h3>
+        <div class="table-scroll">
+          <table class="results">
+            <thead>
+              <tr>
+                <th>Standard</th>
+                <th class="num">Total Violations</th>
+                <th class="num">Serious</th>
+                <th class="num">Willful</th>
+                <th class="num">Repeat</th>
+                <th class="num">Other-than-Serious</th>
+                <th class="num">Inspections</th>
+                <th class="num">Penalties</th>
+              </tr>
+            </thead>
+            <tbody id="table-body"></tbody>
+          </table
+        </div>
+        <p class="footnote">*&nbsp;NAICS industry codes marked with an asterisk in the filter dropdowns indicate that the NAICS code was created, removed, or modified between the 2007 and 2022 NAICS release. Violation counts are not necessarily comparable for all years.</p>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    Data source: U.S. Department of Labor Open Data Portal (data.dol.gov). AABL Analytics does not guarantee the accuracy or completeness of the contents Standards Cited Dashboard.
+  </footer>
+
+  <script type="module">
+    import * as duckdb from 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.29.0/+esm';
+    import * as Plot from 'https://cdn.jsdelivr.net/npm/@observablehq/plot@0.6.16/+esm';
+    import noUiSlider from 'https://cdn.jsdelivr.net/npm/nouislider@15.8.1/+esm';
+
+    // ------------------------------------------------------------------
+    // OSHA State Plan jurisdictions — the only states selectable when the
+    // Jurisdiction filter is set to "State Plan". Federal OSHA can operate
+    // in all states, so no restriction applies to Federal or "All".
+    // ------------------------------------------------------------------
+    const STATE_PLAN_STATES = new Set([
+      'AK','AZ','CA','CT','HI','IL','IN','IA','KY','ME','MA','MD','MN','MI',
+      'NJ','NM','NY','NC','PR','SC','OR','VI','WA','VA','TN','UT','VT','NV',
+    ]);
+
+    // NAICS titles are loaded from naics_lookup.parquet after DuckDB-WASM starts.
+    // naicsLookup maps "digits:code" -> { title, vintages, is_current, continuous }
+    const naicsLookup = new Map();
+    const MAX_TITLE_CHARS = 55;
+
+    function naicsLabel(code, level) {
+      // level: 'sector' (2-digit) | 3 | 4 | 6
+      const digits = level === 'sector' ? 2 : level;
+      const info = naicsLookup.get(`${digits}:${code}`);
+      const title = info ? info.title : '';
+      const asterisk = info && !info.continuous ? '*' : '';
+      const shortTitle = title.length > MAX_TITLE_CHARS
+        ? title.slice(0, MAX_TITLE_CHARS - 1) + '…'
+        : title;
+      return shortTitle ? `${code}${asterisk} — ${shortTitle}` : `${code}${asterisk}`;
+    }
+
+    // standardsLookup maps 8-digit prefix -> { formatted, title }
+    const standardsLookup = new Map();
+
+    function standardDisplay(prefix) {
+      const info = standardsLookup.get(prefix);
+      return info ? info.formatted : prefix;
+    }
+
+    function standardLabel(prefix) {
+      const info = standardsLookup.get(prefix);
+      if (!info) return prefix;
+      if (!info.title) return info.formatted;
+      const title = info.title.length > MAX_TITLE_CHARS
+        ? info.title.slice(0, MAX_TITLE_CHARS - 1) + '…'
+        : info.title;
+      return `${info.formatted} — ${title}`;
+    }
+
+    // ------------------------------------------------------------------
+    // DuckDB-WASM setup
+    // ------------------------------------------------------------------
+    const bundles = duckdb.getJsDelivrBundles();
+    const bundle = await duckdb.selectBundle(bundles);
+    const workerUrl = URL.createObjectURL(
+      new Blob([`importScripts("${bundle.mainWorker}");`], { type: 'text/javascript' })
+    );
+    const worker = new Worker(workerUrl);
+    const db = new duckdb.AsyncDuckDB(new duckdb.ConsoleLogger('WARNING'), worker);
+    await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
+    URL.revokeObjectURL(workerUrl);
+
+    // Cache-bust parquet URLs so a normal browser refresh always picks up
+    // the latest build_data.py output. Without this the browser may serve
+    // a stale parquet from cache and the dashboard reflects old extents.
+    const cb = `?v=${Date.now()}`;
+    const parquetUrl = new URL(`./data/dashboard_violations.parquet${cb}`, location.href).href;
+    await db.registerFileURL('violations.parquet', parquetUrl, duckdb.DuckDBDataProtocol.HTTP, false);
+    const inspUrl = new URL(`./data/dashboard_inspections.parquet${cb}`, location.href).href;
+    await db.registerFileURL('inspections.parquet', inspUrl, duckdb.DuckDBDataProtocol.HTTP, false);
+    const naicsUrl = new URL(`./data/naics_lookup.parquet${cb}`, location.href).href;
+    await db.registerFileURL('naics_lookup.parquet', naicsUrl, duckdb.DuckDBDataProtocol.HTTP, false);
+    const stdUrl = new URL(`./data/standards_lookup.parquet${cb}`, location.href).href;
+    await db.registerFileURL('standards_lookup.parquet', stdUrl, duckdb.DuckDBDataProtocol.HTTP, false);
+    const conn = await db.connect();
+
+    // Load NAICS lookup once into an in-memory Map keyed by "digits:code"
+    {
+      const rows = await (await conn.query(`
+        SELECT naics_code, digits, title, vintages, is_current
+        FROM 'naics_lookup.parquet'
+      `)).toArray();
+      for (const r of rows) {
+        const obj = r.toJSON();
+        const vintages = Array.from(obj.vintages || []).map(Number);
+        const continuous = vintages.length === 4
+          && vintages.includes(2007) && vintages.includes(2012)
+          && vintages.includes(2017) && vintages.includes(2022);
+        naicsLookup.set(`${obj.digits}:${obj.naics_code}`, {
+          title: obj.title,
+          vintages,
+          is_current: Boolean(obj.is_current),
+          continuous,
+        });
+      }
+    }
+
+    // Load Federal OSHA standards lookup (8-digit prefix -> formatted + title).
+    // Prefixes not in this map (5A0001, state-plan codes) fall through to raw.
+    {
+      const rows = await (await conn.query(`
+        SELECT standard_prefix, standard_formatted, standard_title
+        FROM 'standards_lookup.parquet'
+      `)).toArray();
+      for (const r of rows) {
+        const obj = r.toJSON();
+        standardsLookup.set(obj.standard_prefix, {
+          formatted: obj.standard_formatted,
+          title: obj.standard_title || '',
+        });
+      }
+    }
+
+    // ------------------------------------------------------------------
+    // SQL helpers
+    // ------------------------------------------------------------------
+    function sqlEscape(s) {
+      if (s === null || s === undefined) return 'NULL';
+      return "'" + String(s).replace(/'/g, "''") + "'";
+    }
+
+    function rowsFromArrow(arrow) {
+      return arrow.toArray().map(r => {
+        const obj = {};
+        for (const k of Object.keys(r)) {
+          const v = r[k];
+          // BigInt -> Number for display
+          obj[k] = typeof v === 'bigint' ? Number(v) : v;
+        }
+        return obj;
+      });
+    }
+
+    async function query(sql) {
+      const res = await conn.query(sql);
+      return rowsFromArrow(res);
+    }
+
+    // Build the WHERE clause from current filter state
+    function buildWhere(state) {
+      const clauses = [`year BETWEEN ${state.yearMin} AND ${state.yearMax}`];
+      if (state.jurisdiction) clauses.push(`jurisdiction = ${sqlEscape(state.jurisdiction)}`);
+      if (state.siteState)    clauses.push(`site_state = ${sqlEscape(state.siteState)}`);
+      if (state.sector)       clauses.push(`naics_sector = ${sqlEscape(state.sector)}`);
+      if (state.naics3)       clauses.push(`SUBSTR(naics_code, 1, 3) = ${sqlEscape(state.naics3)}`);
+      if (state.naics4)       clauses.push(`SUBSTR(naics_code, 1, 4) = ${sqlEscape(state.naics4)}`);
+      if (state.naics6)       clauses.push(`naics_code = ${sqlEscape(state.naics6)}`);
+      return clauses.join(' AND ');
+    }
+
+    // ------------------------------------------------------------------
+    // Initial metadata loads
+    // ------------------------------------------------------------------
+    const meta = await query(`
+      SELECT MIN(year) AS min_year, MAX(year) AS max_year
+      FROM 'violations.parquet'
+    `);
+    const minYear = meta[0].min_year;
+    const maxYear = meta[0].max_year;
+
+    const states = await query(`
+      SELECT DISTINCT site_state FROM 'violations.parquet'
+      WHERE site_state IS NOT NULL
+      ORDER BY site_state
+    `);
+
+    const sectors = await query(`
+      SELECT naics_sector, SUM(violations) AS c
+      FROM 'violations.parquet'
+      GROUP BY 1 ORDER BY naics_sector
+    `);
+
+    // ------------------------------------------------------------------
+    // Populate static dropdowns
+    // ------------------------------------------------------------------
+    const stateEl = document.getElementById('state');
+    const allStates = states.map(r => r.site_state);
+
+    function populateStateDropdown(jurisdiction) {
+      const visible = jurisdiction === 'State Plan'
+        ? allStates.filter(s => STATE_PLAN_STATES.has(s))
+        : allStates;
+      stateEl.innerHTML = '<option value="">All states</option>';
+      for (const s of visible) {
+        const opt = document.createElement('option');
+        opt.value = s;
+        opt.textContent = s;
+        stateEl.appendChild(opt);
+      }
+    }
+    populateStateDropdown('');
+
+    const sectorEl = document.getElementById('naics-sector');
+    for (const row of sectors) {
+      const opt = document.createElement('option');
+      opt.value = row.naics_sector;
+      opt.textContent = naicsLabel(row.naics_sector, 'sector');
+      sectorEl.appendChild(opt);
+    }
+
+    // ------------------------------------------------------------------
+    // Year slider
+    // ------------------------------------------------------------------
+    const sliderEl = document.getElementById('year-slider');
+    noUiSlider.create(sliderEl, {
+      start: [minYear, maxYear],
+      connect: true,
+      step: 1,
+      range: { min: minYear, max: maxYear },
+      format: { to: v => Math.round(v), from: v => Number(v) },
+    });
+    const yearMinLabel = document.getElementById('year-min-label');
+    const yearMaxLabel = document.getElementById('year-max-label');
+
+    const currentYear = maxYear;
+    function updateYearLabels(values) {
+      yearMinLabel.textContent = values[0];
+      yearMaxLabel.textContent = String(values[1]) === String(currentYear) ? `${values[1]} YTD` : values[1];
+    }
+    updateYearLabels([minYear, maxYear]);
+
+    // ------------------------------------------------------------------
+    // Filter state
+    // ------------------------------------------------------------------
+    const filterState = {
+      yearMin: minYear,
+      yearMax: maxYear,
+      metric: 'violations',
+      topN: 20,
+      jurisdiction: '',
+      siteState: '',
+      sector: '',
+      naics3: '',
+      naics4: '',
+      naics6: '',
+    };
+
+    // ------------------------------------------------------------------
+    // Cascading NAICS
+    // ------------------------------------------------------------------
+    const naics3El = document.getElementById('naics-3');
+    const naics4El = document.getElementById('naics-4');
+    const naics6El = document.getElementById('naics-6');
+
+    function resetSelect(el, placeholder) {
+      el.innerHTML = `<option value="">${placeholder}</option>`;
+      el.value = '';
+      el.disabled = true;
+    }
+
+    async function populateChildNaics(el, placeholder, parentField, parentValue, selectExpr, level, extra = '') {
+      resetSelect(el, placeholder);
+      if (!parentValue) return;
+      const parentClause = parentField === 'naics_sector'
+        ? `naics_sector = ${sqlEscape(parentValue)}`
+        : `SUBSTR(naics_code, 1, ${parentField}) = ${sqlEscape(parentValue)}`;
+      const sql = `
+        SELECT ${selectExpr} AS code
+        FROM 'violations.parquet'
+        WHERE ${parentClause}
+          AND naics_code IS NOT NULL
+          ${extra}
+        GROUP BY 1 HAVING code IS NOT NULL
+        ORDER BY code
+      `;
+      const rows = await query(sql);
+      for (const row of rows) {
+        const opt = document.createElement('option');
+        opt.value = row.code;
+        opt.textContent = naicsLabel(row.code, level);
+        el.appendChild(opt);
+      }
+      el.disabled = rows.length === 0;
+    }
+
+    sectorEl.addEventListener('change', async () => {
+      filterState.sector = sectorEl.value;
+      filterState.naics3 = filterState.naics4 = filterState.naics6 = '';
+      resetSelect(naics4El, 'All 4-digit');
+      resetSelect(naics6El, 'All 6-digit');
+      await populateChildNaics(naics3El, 'All 3-digit', 'naics_sector', filterState.sector, 'SUBSTR(naics_code, 1, 3)', 3);
+      refresh();
+    });
+
+    naics3El.addEventListener('change', async () => {
+      filterState.naics3 = naics3El.value;
+      filterState.naics4 = filterState.naics6 = '';
+      resetSelect(naics6El, 'All 6-digit');
+      await populateChildNaics(naics4El, 'All 4-digit', 3, filterState.naics3, 'SUBSTR(naics_code, 1, 4)', 4);
+      refresh();
+    });
+
+    naics4El.addEventListener('change', async () => {
+      filterState.naics4 = naics4El.value;
+      filterState.naics6 = '';
+      await populateChildNaics(naics6El, 'All 6-digit', 4, filterState.naics4, 'naics_code', 6);
+      refresh();
+    });
+
+    naics6El.addEventListener('change', () => {
+      filterState.naics6 = naics6El.value;
+      refresh();
+    });
+
+    // ------------------------------------------------------------------
+    // Other filter wiring
+    // ------------------------------------------------------------------
+    document.getElementById('jurisdiction').addEventListener('change', e => {
+      filterState.jurisdiction = e.target.value;
+      populateStateDropdown(filterState.jurisdiction);
+      // If the previously-selected state is no longer in the dropdown, clear it
+      if (filterState.siteState && !Array.from(stateEl.options).some(o => o.value === filterState.siteState)) {
+        filterState.siteState = '';
+      }
+      stateEl.value = filterState.siteState;
+      refresh();
+    });
+    stateEl.addEventListener('change', e => {
+      filterState.siteState = e.target.value;
+      refresh();
+    });
+
+    // Debounce slider so dragging doesn't spam queries
+    let sliderTimer;
+    sliderEl.noUiSlider.on('update', values => {
+      const v = [Number(values[0]), Number(values[1])];
+      updateYearLabels(v);
+      filterState.yearMin = v[0];
+      filterState.yearMax = v[1];
+      clearTimeout(sliderTimer);
+      sliderTimer = setTimeout(refresh, 150);
+    });
+
+    // Metric tabs
+    for (const btn of document.querySelectorAll('.metric-btn')) {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.metric-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        filterState.metric = btn.dataset.metric;
+        refresh();  // re-query so ORDER BY picks the new metric
+      });
+    }
+
+    // Top-N selector
+    document.getElementById('top-n').addEventListener('change', e => {
+      filterState.topN = Number(e.target.value);
+      refresh();
+    });
+
+    // CSV download
+    document.getElementById('download-csv').addEventListener('click', downloadCsv);
+
+    // ------------------------------------------------------------------
+    // KPIs
+    // ------------------------------------------------------------------
+    function fmtInt(n) {
+      if (n == null) return '—';
+      return Math.round(n).toLocaleString();
+    }
+    function fmtPenalty(n) {
+      if (n == null) return '—';
+      if (n >= 1e9) return `$${(n / 1e9).toFixed(2)}B`;
+      if (n >= 1e6) return `$${(n / 1e6).toFixed(1)}M`;
+      if (n >= 1e3) return `$${(n / 1e3).toFixed(0)}K`;
+      return `$${Math.round(n).toLocaleString()}`;
+    }
+
+    let currentRows = [];
+    let currentKpis = { violations: 0, inspections: 0, total_penalty: 0 };
+
+    async function refresh() {
+      const where = buildWhere(filterState);
+      const metric = filterState.metric;
+      const topN = filterState.topN;
+
+      // Inspections live in a separate parquet because COUNT(DISTINCT) can't
+      // be summed across pre-aggregated rows. Violations + penalty come from
+      // the compact aggregate; inspection counts are distinct at query time.
+      const topListSql = metric === 'inspections'
+        ? `SELECT standard_prefix, COUNT(DISTINCT activity_nr) AS metric_value
+           FROM 'inspections.parquet' WHERE ${where}
+           GROUP BY 1 ORDER BY metric_value DESC NULLS LAST LIMIT ${topN}`
+        : `SELECT standard_prefix, SUM(${metric}) AS metric_value
+           FROM 'violations.parquet' WHERE ${where}
+           GROUP BY 1 ORDER BY metric_value DESC NULLS LAST LIMIT ${topN}`;
+
+      const [vKpi, iKpi, topList] = await Promise.all([
+        query(`SELECT SUM(violations) AS violations,
+                      SUM(total_penalty) AS total_penalty
+               FROM 'violations.parquet' WHERE ${where}`),
+        query(`SELECT COUNT(DISTINCT activity_nr) AS inspections
+               FROM 'inspections.parquet' WHERE ${where}`),
+        query(topListSql),
+      ]);
+
+      currentKpis = {
+        violations: vKpi[0].violations || 0,
+        total_penalty: vKpi[0].total_penalty || 0,
+        inspections: iKpi[0].inspections || 0,
+      };
+
+      const prefixes = topList.map(r => r.standard_prefix);
+      if (prefixes.length === 0) {
+        currentRows = [];
+      } else {
+        const inClause = `standard_prefix IN (${prefixes.map(sqlEscape).join(',')})`;
+        // When metric=inspections, topList already contains the per-prefix
+        // distinct-inspection counts (it ranked by that metric). Reuse them
+        // instead of re-running the same COUNT(DISTINCT) query.
+        const iPerPromise = metric === 'inspections'
+          ? Promise.resolve(topList.map(r => ({
+              standard_prefix: r.standard_prefix, inspections: r.metric_value,
+            })))
+          : query(`SELECT standard_prefix, COUNT(DISTINCT activity_nr) AS inspections
+                   FROM 'inspections.parquet'
+                   WHERE ${where} AND ${inClause}
+                   GROUP BY 1`);
+
+        const [vPer, iPer] = await Promise.all([
+          // viol_type breakdown via conditional sums.  Unclassified violations
+          // exist in the data but aren't shown — the four columns can sum to
+          // less than the Total Violations figure for that reason.
+          query(`SELECT standard_prefix,
+                        SUM(violations)                                                                  AS violations,
+                        SUM(CASE WHEN viol_type = 'Serious'  THEN violations ELSE 0 END)                  AS serious,
+                        SUM(CASE WHEN viol_type = 'Willful'  THEN violations ELSE 0 END)                  AS willful,
+                        SUM(CASE WHEN viol_type = 'Repeat'   THEN violations ELSE 0 END)                  AS repeat_count,
+                        SUM(CASE WHEN viol_type = 'Other'    THEN violations ELSE 0 END)                  AS other_than_serious,
+                        SUM(total_penalty)                                                                AS total_penalty
+                 FROM 'violations.parquet' WHERE ${where} AND ${inClause}
+                 GROUP BY 1`),
+          iPerPromise,
+        ]);
+        const vMap = new Map(vPer.map(r => [r.standard_prefix, r]));
+        const iMap = new Map(iPer.map(r => [r.standard_prefix, r]));
+        currentRows = prefixes.map(p => {
+          const info = standardsLookup.get(p);
+          const v = vMap.get(p);
+          return {
+            standard_prefix: p,
+            display_short: info ? info.formatted : p,
+            display_long: standardLabel(p),
+            standard_title: info ? info.title : '',
+            violations: v?.violations || 0,
+            serious: v?.serious || 0,
+            willful: v?.willful || 0,
+            repeat_count: v?.repeat_count || 0,
+            other_than_serious: v?.other_than_serious || 0,
+            total_penalty: v?.total_penalty || 0,
+            inspections: iMap.get(p)?.inspections || 0,
+          };
+        });
+      }
+
+      renderKpis();
+      renderChart();
+      renderTable();
+      renderChartMeta();
+    }
+
+    function renderKpis() {
+      document.getElementById('kpi-violations').textContent = fmtInt(currentKpis.violations);
+      document.getElementById('kpi-inspections').textContent = fmtInt(currentKpis.inspections);
+      document.getElementById('kpi-penalty').textContent = fmtPenalty(currentKpis.total_penalty);
+    }
+
+    function renderChartMeta() {
+      document.getElementById('chart-title').textContent = `Top ${filterState.topN} Standards`;
+      const metricLabel = {
+        violations: 'violation count',
+        inspections: 'inspection count',
+        total_penalty: 'total penalty',
+      }[filterState.metric];
+      const yearRange = `${filterState.yearMin}–${filterState.yearMax === currentYear ? filterState.yearMax + ' YTD' : filterState.yearMax}`;
+      document.getElementById('chart-meta').textContent =
+        currentRows.length ? `Ranked by ${metricLabel} · ${yearRange}` : '';
+    }
+
+    function renderTable() {
+      const body = document.getElementById('table-body');
+      body.innerHTML = '';
+      for (const row of currentRows) {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td class="std">${escapeHtml(row.display_long)}</td>
+          <td class="num">${Math.round(row.violations).toLocaleString()}</td>
+          <td class="num">${Math.round(row.serious).toLocaleString()}</td>
+          <td class="num">${Math.round(row.willful).toLocaleString()}</td>
+          <td class="num">${Math.round(row.repeat_count).toLocaleString()}</td>
+          <td class="num">${Math.round(row.other_than_serious).toLocaleString()}</td>
+          <td class="num">${Math.round(row.inspections).toLocaleString()}</td>
+          <td class="num">$${Math.round(row.total_penalty).toLocaleString()}</td>
+        `;
+        body.appendChild(tr);
+      }
+    }
+
+    function escapeHtml(s) {
+      return String(s ?? '').replace(/[&<>"']/g, c => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      }[c]));
+    }
+
+    function downloadCsv() {
+      if (!currentRows.length) return;
+      const header = [
+        'standard', 'standard_title',
+        'total_violations', 'serious', 'willful', 'repeat', 'other_than_serious',
+        'inspections', 'total_penalty',
+      ];
+      const lines = [header.join(',')];
+      const csvField = s => {
+        const v = String(s ?? '');
+        return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+      };
+      for (const r of currentRows) {
+        lines.push([
+          csvField(r.display_short),
+          csvField(r.standard_title),
+          Math.round(r.violations),
+          Math.round(r.serious),
+          Math.round(r.willful),
+          Math.round(r.repeat_count),
+          Math.round(r.other_than_serious),
+          Math.round(r.inspections),
+          Math.round(r.total_penalty),
+        ].join(','));
+      }
+      const tokens = [];
+      tokens.push(filterState.metric);
+      tokens.push(`${filterState.yearMin}-${filterState.yearMax}`);
+      if (filterState.jurisdiction) tokens.push(filterState.jurisdiction.replace(/\s+/g, '_'));
+      if (filterState.siteState) tokens.push(filterState.siteState);
+      if (filterState.naics6) tokens.push(`naics${filterState.naics6}`);
+      else if (filterState.naics4) tokens.push(`naics${filterState.naics4}`);
+      else if (filterState.naics3) tokens.push(`naics${filterState.naics3}`);
+      else if (filterState.sector) tokens.push(`naics${filterState.sector}`);
+      const filename = `osha_top_standards_${tokens.join('_')}.csv`;
+      const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    function renderChart() {
+      const el = document.getElementById('chart');
+      const empty = document.getElementById('empty-state');
+      const tableWrap = document.getElementById('table-wrap');
+      el.innerHTML = '';
+      if (!currentRows.length) {
+        empty.style.display = 'block';
+        tableWrap.style.display = 'none';
+        return;
+      }
+      empty.style.display = 'none';
+      tableWrap.style.display = 'block';
+
+      const isPenalty = filterState.metric === 'total_penalty';
+      const width = Math.max(el.clientWidth || 900, 720);
+      const chart = Plot.plot({
+        width,
+        height: Math.max(380, currentRows.length * 22 + 60),
+        marginLeft: 120,
+        marginRight: 60,
+        x: {
+          label: isPenalty ? 'Total penalty ($)' : (filterState.metric === 'inspections' ? 'Inspections' : 'Violations'),
+          tickFormat: isPenalty ? (d => '$' + d3Format(d)) : d3Format,
+          grid: true,
+        },
+        y: { label: null, type: 'band' },     // standard prefixes are identifiers, not numbers
+        marks: [
+          Plot.barX(currentRows, {
+            x: filterState.metric,
+            y: 'display_short',
+            fill: 'var(--bar)',
+            sort: { y: 'x', reverse: true },
+            tip: true,
+            title: d => {
+              const v = d[filterState.metric];
+              const val = isPenalty ? `$${Math.round(v).toLocaleString()}` : Math.round(v).toLocaleString();
+              return `${d.display_long}\n${val}`;
+            },
+          }),
+          Plot.ruleX([0]),
+        ],
+      });
+      el.appendChild(chart);
+    }
+
+    function d3Format(n) {
+      if (n >= 1e9) return (n / 1e9).toFixed(1) + 'B';
+      if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+      if (n >= 1e3) return (n / 1e3).toFixed(0) + 'K';
+      return String(Math.round(n));
+    }
+
+    // ------------------------------------------------------------------
+    // Manifest — populates the "data through ..." label in the header.
+    // Failure here is non-fatal; we just leave "present" as written.
+    // ------------------------------------------------------------------
+    try {
+      const manifest = await (await fetch('./data/manifest.json', { cache: 'no-cache' })).json();
+      if (manifest?.data_through_label) {
+        document.getElementById('data-through').textContent = manifest.data_through_label;
+      }
+    } catch (e) {
+      console.warn('manifest.json missing — header will read "present"', e);
+    }
+
+    // ------------------------------------------------------------------
+    // First render
+    // ------------------------------------------------------------------
+    await refresh();
+    document.getElementById('loading').style.display = 'none';
+    document.querySelector('main').style.display = 'block';
+  </script>
+</body>
+</html>
