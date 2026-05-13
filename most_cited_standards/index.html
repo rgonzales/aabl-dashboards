@@ -77,8 +77,12 @@
       .kpis { grid-template-columns: 1fr; gap: 10px; margin-bottom: 18px; }
       .filters { grid-template-columns: 1fr; gap: 14px; padding: 16px; }
       .chart-header { flex-wrap: wrap; gap: 12px; }
+      /* Stack metric tabs vertically and the NAICS cascade in one column
+         so nothing overflows the narrow viewport. */
+      .metric-tabs { flex-direction: column; }
+      .naics-cascade { grid-template-columns: 1fr; }
     }
-    .filter { display: flex; flex-direction: column; gap: 6px; }
+    .filter { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
     .filter > label { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
 
     select, button.metric-btn {
@@ -90,6 +94,9 @@
       font-family: inherit;
       cursor: pointer;
     }
+    /* Filter dropdowns should fill their column on all sizes — prevents them
+       from sizing to the widest option's text and overflowing on mobile. */
+    .filter select { width: 100%; max-width: 100%; }
     select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 
     .metric-tabs { display: flex; gap: 4px; }
