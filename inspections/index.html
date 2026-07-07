@@ -262,15 +262,16 @@
     <section class="chart-wrap">
       <div class="chart-header">
         <div>
-          <h2 id="chart-title">Inspections per Month</h2>
-          <div class="meta" id="chart-meta">—</div>
+          <h2 id="chart-title">Inspections per Year</h2>
+          <div class="meta" id="chart-meta"></div>
         </div>
         <div style="display:flex; gap:12px; align-items:center;">
           <div class="mode-toggle" id="period-toggle" role="group" aria-label="Time aggregation">
-            <button class="period-btn active" data-period="month">Month</button>
-            <button class="period-btn" data-period="year">Year</button>
+            <button class="period-btn active" data-period="year">Year</button>
+            <button class="period-btn" data-period="month">Month</button>
           </div>
           <button class="download-btn" id="download-csv" title="Download the time series as CSV">Download CSV</button>
+          <button class="download-btn" id="download-png" title="Download the chart as a PNG image">Download PNG</button>
         </div>
       </div>
 
@@ -301,6 +302,17 @@
       'NJ','NM','NY','NC','PR','SC','OR','VI','WA','VA','TN','UT','VT','NV',
     ]);
 
+    // States with no state plan at all — federal OSHA has exclusive
+    // jurisdiction. Selecting one of these auto-sets the Jurisdiction filter
+    // to "Federal OSHA". States with any state plan presence (including the
+    // public-sector-only plans like CT, IL, ME, NJ, NY) are intentionally
+    // NOT in this set.
+    const FEDERAL_ONLY_STATES = new Set([
+      'AL','AR','CO','DE','DC','FL','GA','ID','KS','LA','MS','MO','MT',
+      'NE','NH','ND','OH','OK','PA','RI','SD','TX','WV','WI','WY',
+      'AS','GU',
+    ]);
+
     const PROGRAMMED_COLOR = getComputedStyle(document.documentElement)
       .getPropertyValue('--programmed').trim() || '#1e3a8a';
     const UNPROGRAMMED_COLOR = getComputedStyle(document.documentElement)
@@ -309,6 +321,23 @@
     const COLOR_RANGE  = [PROGRAMMED_COLOR, UNPROGRAMMED_COLOR];
 
     const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+    // Expand 2-letter state codes to full names for the chart filter summary.
+    const STATE_NAMES = {
+      AL: 'Alabama', AK: 'Alaska', AZ: 'Arizona', AR: 'Arkansas', CA: 'California',
+      CO: 'Colorado', CT: 'Connecticut', DE: 'Delaware', DC: 'District of Columbia',
+      FL: 'Florida', GA: 'Georgia', HI: 'Hawaii', ID: 'Idaho', IL: 'Illinois',
+      IN: 'Indiana', IA: 'Iowa', KS: 'Kansas', KY: 'Kentucky', LA: 'Louisiana',
+      ME: 'Maine', MD: 'Maryland', MA: 'Massachusetts', MI: 'Michigan', MN: 'Minnesota',
+      MS: 'Mississippi', MO: 'Missouri', MT: 'Montana', NE: 'Nebraska', NV: 'Nevada',
+      NH: 'New Hampshire', NJ: 'New Jersey', NM: 'New Mexico', NY: 'New York',
+      NC: 'North Carolina', ND: 'North Dakota', OH: 'Ohio', OK: 'Oklahoma',
+      OR: 'Oregon', PA: 'Pennsylvania', PR: 'Puerto Rico', RI: 'Rhode Island',
+      SC: 'South Carolina', SD: 'South Dakota', TN: 'Tennessee', TX: 'Texas',
+      UT: 'Utah', VT: 'Vermont', VA: 'Virginia', VI: 'Virgin Islands',
+      WA: 'Washington', WV: 'West Virginia', WI: 'Wisconsin', WY: 'Wyoming',
+      AS: 'American Samoa', GU: 'Guam',
+    };
 
     const naicsLookup = new Map();
     const MAX_TITLE_CHARS = 55;
@@ -471,12 +500,19 @@
     function populateStateDropdown(jurisdiction) {
       const visible = jurisdiction === 'State Plan'
         ? allStates.filter(s => STATE_PLAN_STATES.has(s))
-        : allStates;
+        : allStates.slice();
+      // Sort by displayed full name so the dropdown reads alphabetically by
+      // name rather than by 2-letter code (e.g. "Alabama" before "Alaska").
+      visible.sort((a, b) => {
+        const an = STATE_NAMES[a] || a;
+        const bn = STATE_NAMES[b] || b;
+        return an.localeCompare(bn);
+      });
       stateEl.innerHTML = '<option value="">All states</option>';
       for (const s of visible) {
         const opt = document.createElement('option');
         opt.value = s;
-        opt.textContent = s;
+        opt.textContent = STATE_NAMES[s] || s;
         stateEl.appendChild(opt);
       }
     }
@@ -515,7 +551,7 @@
     const filterState = {
       monthMin: 0,
       monthMax: MAX_IDX,
-      period: 'month',        // 'month' | 'year'
+      period: 'year',         // 'year' | 'month' (default = year)
       inspType: '',           // '' | 'Programmed' | 'Unprogrammed'
       jurisdiction: '',
       siteState: '',
@@ -605,8 +641,26 @@
       stateEl.value = filterState.siteState;
       refresh();
     });
+    // Grey out the "State Plan" option in the Jurisdiction dropdown when a
+    // federal-only state is selected — there are no state-plan inspections
+    // to show, and picking it would wipe the state filter when the state
+    // dropdown rebuilt itself to state-plan states only.
+    function syncJurisdictionOptions(stateCode) {
+      const opt = document.querySelector('#jurisdiction option[value="State Plan"]');
+      if (opt) opt.disabled = !!(stateCode && FEDERAL_ONLY_STATES.has(stateCode));
+    }
+
     stateEl.addEventListener('change', e => {
       filterState.siteState = e.target.value;
+      // Auto-flip Jurisdiction to "Federal OSHA" when the picked state is
+      // exclusively federal jurisdiction, so the title and filter scope match.
+      if (filterState.siteState
+          && FEDERAL_ONLY_STATES.has(filterState.siteState)
+          && filterState.jurisdiction !== 'Federal OSHA') {
+        filterState.jurisdiction = 'Federal OSHA';
+        document.getElementById('jurisdiction').value = 'Federal OSHA';
+      }
+      syncJurisdictionOptions(filterState.siteState);
       refresh();
     });
 
@@ -641,9 +695,10 @@
     }
 
     // ------------------------------------------------------------------
-    // CSV download (the time series currently on screen)
+    // CSV / PNG download (the time series currently on screen)
     // ------------------------------------------------------------------
     document.getElementById('download-csv').addEventListener('click', downloadCsv);
+    document.getElementById('download-png').addEventListener('click', downloadPng);
 
     // ------------------------------------------------------------------
     // KPI + chart state
@@ -704,13 +759,50 @@
       document.getElementById('kpi-unprogrammed-pct').textContent = fmtPct(kpis.unprogrammed, kpis.total);
     }
 
+    // Title reflects the jurisdiction filter; "All" = both fed + state plan.
+    function jurisdictionPhrase() {
+      if (!filterState.jurisdiction) return 'Federal OSHA and State Plan';
+      return filterState.jurisdiction;
+    }
+
+    // The deepest NAICS level the user has selected, formatted as
+    // "NAICS <code> - <title>". Returns '' when no NAICS filter is active.
+    function naicsSummary() {
+      const levels = [
+        { key: 'naics6', digits: 6 },
+        { key: 'naics4', digits: 4 },
+        { key: 'naics3', digits: 3 },
+        { key: 'sector', digits: 2 },
+      ];
+      for (const { key, digits } of levels) {
+        const code = filterState[key];
+        if (!code) continue;
+        const info = naicsLookup.get(`${digits}:${code}`);
+        return info && info.title
+          ? `NAICS ${code} - ${info.title}`
+          : `NAICS ${code}`;
+      }
+      return '';
+    }
+
+    function buildFilterSummary() {
+      const parts = [];
+      if (filterState.siteState) {
+        parts.push(STATE_NAMES[filterState.siteState] || filterState.siteState);
+      }
+      if (filterState.inspType) {
+        parts.push(`${filterState.inspType} Inspections`);
+      }
+      const naicsBit = naicsSummary();
+      if (naicsBit) parts.push(naicsBit);
+      return parts.join(', ');
+    }
+
     function renderChartMeta() {
-      const range = `${idxToLabel(filterState.monthMin)} – ${idxToLabel(filterState.monthMax)}`;
-      const typeBit = filterState.inspType ? ` · ${filterState.inspType} only` : '';
-      const periodBit = filterState.period === 'year' ? ' · annual' : ' · monthly';
-      document.getElementById('chart-meta').textContent = `${range}${typeBit}${periodBit}`;
+      const periodWord = filterState.period === 'year' ? 'Year' : 'Month';
       document.getElementById('chart-title').textContent =
-        filterState.period === 'year' ? 'Inspections per Year' : 'Inspections per Month';
+        `${jurisdictionPhrase()} Inspections per ${periodWord}`;
+      document.getElementById('chart-meta').textContent = buildFilterSummary();
     }
 
     // ------------------------------------------------------------------
@@ -966,6 +1058,98 @@
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
+    }
+
+    // ------------------------------------------------------------------
+    // PNG download — rasterizes the chart SVG into a canvas with the
+    // current title + filter summary drawn above it on a white background.
+    // ------------------------------------------------------------------
+    async function downloadPng() {
+      const chartEl = document.getElementById('chart');
+      const svgEl = chartEl.querySelector('svg');
+      if (!svgEl) return;
+
+      const title    = document.getElementById('chart-title').textContent || '';
+      const subtitle = document.getElementById('chart-meta').textContent  || '';
+
+      const svgWidth  = Number(svgEl.getAttribute('width'))  || svgEl.clientWidth;
+      const svgHeight = Number(svgEl.getAttribute('height')) || svgEl.clientHeight;
+
+      const clone = svgEl.cloneNode(true);
+      clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+      clone.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
+      const svgString = new XMLSerializer().serializeToString(clone);
+
+      const sidePad   = 24;
+      const topPad    = 20;
+      const titleH    = 24;
+      const subtitleH = subtitle ? 20 : 0;
+      const gap       = 12;
+      const bottomPad = 16;
+      const headerH   = topPad + titleH + subtitleH + gap;
+      const targetW   = svgWidth + sidePad * 2;
+      const targetH   = headerH + svgHeight + bottomPad;
+
+      // 2x scale for crisp output on retina displays.
+      const scale = 2;
+      const canvas = document.createElement('canvas');
+      canvas.width  = targetW * scale;
+      canvas.height = targetH * scale;
+      const ctx = canvas.getContext('2d');
+      ctx.scale(scale, scale);
+
+      ctx.fillStyle = 'white';
+      ctx.fillRect(0, 0, targetW, targetH);
+
+      const fontStack = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+      ctx.textBaseline = 'top';
+      ctx.fillStyle = '#1a1a1a';
+      ctx.font = `600 16px ${fontStack}`;
+      ctx.fillText(title, sidePad, topPad);
+      if (subtitle) {
+        ctx.fillStyle = '#6b7280';
+        ctx.font = `12px ${fontStack}`;
+        ctx.fillText(subtitle, sidePad, topPad + titleH);
+      }
+
+      const svgBlob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
+      const url = URL.createObjectURL(svgBlob);
+      try {
+        const img = new Image();
+        await new Promise((resolve, reject) => {
+          img.onload = resolve;
+          img.onerror = reject;
+          img.src = url;
+        });
+        ctx.drawImage(img, sidePad, headerH, svgWidth, svgHeight);
+      } finally {
+        URL.revokeObjectURL(url);
+      }
+
+      const tokens = [filterState.period];
+      tokens.push(`${idxToYm(filterState.monthMin).y}${String(idxToYm(filterState.monthMin).m).padStart(2,'0')}-${idxToYm(filterState.monthMax).y}${String(idxToYm(filterState.monthMax).m).padStart(2,'0')}`);
+      if (filterState.inspType) tokens.push(filterState.inspType);
+      if (filterState.jurisdiction) tokens.push(filterState.jurisdiction.replace(/\s+/g, '_'));
+      if (filterState.siteState) tokens.push(filterState.siteState);
+      if (filterState.naics6) tokens.push(`naics${filterState.naics6}`);
+      else if (filterState.naics4) tokens.push(`naics${filterState.naics4}`);
+      else if (filterState.naics3) tokens.push(`naics${filterState.naics3}`);
+      else if (filterState.sector) tokens.push(`naics${filterState.sector}`);
+      const filename = `osha_inspections_${tokens.join('_')}.png`;
+
+      await new Promise(resolve => {
+        canvas.toBlob(blob => {
+          const burl = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = burl;
+          a.download = filename;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          URL.revokeObjectURL(burl);
+          resolve();
+        }, 'image/png');
+      });
     }
 
     // ------------------------------------------------------------------
